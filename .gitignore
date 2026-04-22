@@ -1,0 +1,47 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Jupyter checkpoints ───────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Model weights & training outputs ─────────────────────────────────────────
+# (too large for GitHub — share via cloud storage or release assets)
+*.pt
+*.pth
+runs/
+
+# ── Image data ────────────────────────────────────────────────────────────────
+# Image folders are NOT pushed — users supply their own
+Platinum_images/
+*.jpg
+*.jpeg
+*.tiff
+# Exception: small example images for the README
+!examples/*.jpg
+
+# ── Internal test / scratch files ─────────────────────────────────────────────
+test_imports.py
+test_im2quant.py
+
+# ── Optuna databases ──────────────────────────────────────────────────────────
+*.db
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
