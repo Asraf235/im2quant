@@ -90,6 +90,18 @@ python scripts/plot_results.py   # saves training_curve.png and r2_scatter.png
 
 ---
 
+## Example results (Platinum dataset)
+
+**Training curves**
+
+![training curve](examples/training_curve.png)
+
+**Predicted vs measured resistance (R² on test set)**
+
+![r2 scatter](examples/r2_scatter.png)
+
+---
+
 ## Repository contents
 
 ```

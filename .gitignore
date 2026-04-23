@@ -10,6 +10,7 @@ build/
 .venv/
 venv/
 env/
+im2quant_test/
 
 # ── Jupyter checkpoints ───────────────────────────────────────────────────────
 .ipynb_checkpoints/
@@ -27,8 +28,9 @@ Platinum_images/
 *.jpg
 *.jpeg
 *.tiff
-# Exception: small example images for the README
+# Exception: small example images and result plots for the README
 !examples/*.jpg
+!examples/*.png
 
 # ── Internal test / scratch files ─────────────────────────────────────────────
 test_imports.py
