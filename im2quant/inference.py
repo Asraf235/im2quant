@@ -11,6 +11,8 @@ from PIL import Image
 from .model import TunableDualHeadModel
 from .utils import crop_central_line
 
+_DUMMY_IMG_SIZE = (224, 224)
+
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -47,6 +49,7 @@ def load_model(
     reg_layers = ckpt.get("reg_layers", [64])
     cls_layers = ckpt.get("cls_layers", [64])
     backbone = ckpt.get("backbone", "yolo26n")
+    input_mode = ckpt.get("input_mode", "both")
     condition_cols = ckpt.get(
         "condition_cols",
         [
@@ -66,6 +69,7 @@ def load_model(
         cls_layers=cls_layers,
         dropout=0.0,          # No dropout during inference
         freeze_backbone=False,
+        input_mode=input_mode,
     ).to(device)
 
     model.load_state_dict(ckpt["model"])
@@ -100,8 +104,8 @@ def _normalise_conditions(
 
 def predict_single_image(
     checkpoint_path: str,
-    image_path: str,
-    conditions: Dict[str, float],
+    image_path: Optional[str] = None,
+    conditions: Optional[Dict[str, float]] = None,
     device: Optional[str] = None,
 ) -> Dict[str, float]:
     """
@@ -112,10 +116,13 @@ def predict_single_image(
     checkpoint_path :
         Path to ``.pt`` checkpoint saved by :func:`~im2quant.train.train`.
     image_path :
-        Path to the image file.
+        Path to the image file.  Required when the checkpoint's
+        ``input_mode`` is ``"both"`` or ``"image_only"``; ignored for
+        ``"params_only"`` models.
     conditions :
         Dict mapping condition column names to their numeric values.
-        Keys must match ``condition_cols`` stored in the checkpoint.
+        Required when ``input_mode`` is ``"both"`` or ``"params_only"``;
+        ignored for ``"image_only"`` models.
     device :
         ``'cuda'`` or ``'cpu'``.  Auto-detected if not given.
 
@@ -132,13 +139,33 @@ def predict_single_image(
 
     model, ckpt = load_model(checkpoint_path, device)
 
+    input_mode: str = ckpt.get("input_mode", "both")
     cond_mean = np.array(ckpt["cond_mean"], dtype=np.float32)
     cond_std = np.array(ckpt["cond_std"], dtype=np.float32)
-    condition_cols: List[str] = ckpt.get("condition_cols", list(conditions.keys()))
+    condition_cols: List[str] = ckpt.get("condition_cols", [])
     log_transform: bool = ckpt.get("log_transform", True)
 
-    img_tensor = _preprocess(image_path).to(device)
-    cond_tensor = _normalise_conditions(conditions, condition_cols, cond_mean, cond_std).to(device)
+    # Build image tensor — required for image-based modes
+    if input_mode in ("both", "image_only"):
+        if image_path is None:
+            raise ValueError(
+                f"image_path is required for input_mode='{input_mode}'"
+            )
+        img_tensor = _preprocess(image_path).to(device)
+    else:
+        img_tensor = torch.zeros(1, 3, *_DUMMY_IMG_SIZE, device=device)
+
+    # Build conditions tensor — required for parameter-based modes
+    if input_mode in ("both", "params_only"):
+        if conditions is None:
+            raise ValueError(
+                f"conditions is required for input_mode='{input_mode}'"
+            )
+        cond_tensor = _normalise_conditions(
+            conditions, condition_cols, cond_mean, cond_std
+        ).to(device)
+    else:
+        cond_tensor = torch.zeros(1, len(condition_cols), device=device)
 
     with torch.no_grad():
         pred_r, logits = model(img_tensor, cond_tensor)
@@ -152,8 +179,8 @@ def predict_single_image(
 
 def predict_batch(
     checkpoint_path: str,
-    image_paths: List[str],
-    conditions_list: List[Dict[str, float]],
+    image_paths: Optional[List[str]] = None,
+    conditions_list: Optional[List[Dict[str, float]]] = None,
     device: Optional[str] = None,
 ) -> List[Dict[str, float]]:
     """
@@ -166,9 +193,12 @@ def predict_batch(
     checkpoint_path :
         Path to ``.pt`` checkpoint.
     image_paths :
-        List of image file paths.
+        List of image file paths.  Required when ``input_mode`` is
+        ``"both"`` or ``"image_only"``; ignored for ``"params_only"``.
     conditions_list :
-        List of condition dicts, one per image.
+        List of condition dicts, one per sample.  Required when
+        ``input_mode`` is ``"both"`` or ``"params_only"``; ignored for
+        ``"image_only"``.
     device :
         ``'cuda'`` or ``'cpu'``.  Auto-detected if not given.
 
@@ -181,18 +211,35 @@ def predict_batch(
 
     model, ckpt = load_model(checkpoint_path, device)
 
+    input_mode: str = ckpt.get("input_mode", "both")
     cond_mean = np.array(ckpt["cond_mean"], dtype=np.float32)
     cond_std = np.array(ckpt["cond_std"], dtype=np.float32)
-    condition_cols: List[str] = ckpt.get("condition_cols", list(conditions_list[0].keys()))
+    condition_cols: List[str] = ckpt.get("condition_cols", [])
     log_transform: bool = ckpt.get("log_transform", True)
 
+    needs_images = input_mode in ("both", "image_only")
+    needs_conds = input_mode in ("both", "params_only")
+
+    if needs_images and not image_paths:
+        raise ValueError(f"image_paths is required for input_mode='{input_mode}'")
+    if needs_conds and not conditions_list:
+        raise ValueError(f"conditions_list is required for input_mode='{input_mode}'")
+
+    n = len(image_paths) if needs_images else len(conditions_list)  # type: ignore[arg-type]
     results: List[Dict[str, float]] = []
 
-    for image_path, conditions in zip(image_paths, conditions_list):
-        img_tensor = _preprocess(image_path).to(device)
-        cond_tensor = _normalise_conditions(
-            conditions, condition_cols, cond_mean, cond_std
-        ).to(device)
+    for i in range(n):
+        if needs_images:
+            img_tensor = _preprocess(image_paths[i]).to(device)  # type: ignore[index]
+        else:
+            img_tensor = torch.zeros(1, 3, *_DUMMY_IMG_SIZE, device=device)
+
+        if needs_conds:
+            cond_tensor = _normalise_conditions(
+                conditions_list[i], condition_cols, cond_mean, cond_std  # type: ignore[index]
+            ).to(device)
+        else:
+            cond_tensor = torch.zeros(1, len(condition_cols), device=device)
 
         with torch.no_grad():
             pred_r, logits = model(img_tensor, cond_tensor)

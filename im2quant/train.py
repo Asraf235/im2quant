@@ -162,6 +162,7 @@ def train(
         cls_layers=cls_layers,
         dropout=dropout,
         freeze_backbone=cfg.freeze_backbone,
+        input_mode=cfg.input_mode,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -177,7 +178,7 @@ def train(
     best_val_loss = float("inf")
     patience_count = 0
     history = []
-    ckpt_path = output_dir / f"best_{cfg.backbone}_tuned.pt"
+    ckpt_path = output_dir / f"best_{cfg.backbone}_{cfg.input_mode}_tuned.pt"
 
     for epoch in range(cfg.epochs):
         tr = _run_epoch(model, train_loader, optimizer, True, lambda_weight, device, cls_criterion)
@@ -217,6 +218,7 @@ def train(
                     "best_val_loss": best_val_loss,
                     # ── Inference metadata ────────────────────────────────────
                     "backbone": cfg.backbone,
+                    "input_mode": cfg.input_mode,
                     "condition_cols": cfg.condition_cols,
                     "log_transform": cfg.log_transform,
                     "cond_mean": train_ds._cond_mean,
@@ -236,7 +238,7 @@ def train(
             print(f"Early stopping at epoch {epoch + 1}.")
             break
 
-    pd.DataFrame(history).to_csv(output_dir / "history.csv", index=False)
+    pd.DataFrame(history).to_csv(output_dir / f"history_{cfg.input_mode}.csv", index=False)
     print(f"\nBest val loss: {best_val_loss:.4f}  |  Checkpoint: {ckpt_path}")
     return ckpt_path
 
@@ -323,6 +325,7 @@ def tune_hyperparameters(
                 cls_layers=cls_layers,
                 dropout=dropout,
                 freeze_backbone=cfg.freeze_backbone,
+                input_mode=cfg.input_mode,
             ).to(device)
         except Exception:
             raise optuna.exceptions.TrialPruned()
