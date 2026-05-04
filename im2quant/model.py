@@ -115,6 +115,12 @@ class TunableDualHeadModel(nn.Module):
         Dropout probability applied after each shared-neck layer.
     freeze_backbone :
         If True, backbone weights are frozen during training.
+    input_mode :
+        Ablation switch controlling which inputs reach the shared neck:
+
+        * ``"both"``        — image features + conditions (default, full model)
+        * ``"image_only"``  — YOLO features only; conditions tensor is ignored
+        * ``"params_only"`` — conditions only; YOLO backbone is never loaded
     """
 
     def __init__(
@@ -126,11 +132,29 @@ class TunableDualHeadModel(nn.Module):
         cls_layers: List[int],
         dropout: float,
         freeze_backbone: bool = False,
+        input_mode: str = "both",
     ):
         super().__init__()
-        self.backbone = YOLOFeatureExtractor(backbone_name, freeze=freeze_backbone)
-        feat_dim = self.backbone.feature_dim
-        in_dim = feat_dim + n_conditions
+
+        _valid = ("both", "image_only", "params_only")
+        if input_mode not in _valid:
+            raise ValueError(f"input_mode must be one of {_valid}, got '{input_mode}'")
+        self.input_mode = input_mode
+
+        # Backbone is only needed when images are used as input
+        if input_mode in ("both", "image_only"):
+            self.backbone = YOLOFeatureExtractor(backbone_name, freeze=freeze_backbone)
+            feat_dim = self.backbone.feature_dim
+        else:
+            self.backbone = None
+            feat_dim = 0
+
+        if input_mode == "both":
+            in_dim = feat_dim + n_conditions
+        elif input_mode == "image_only":
+            in_dim = feat_dim
+        else:  # params_only
+            in_dim = n_conditions
 
         # ── Shared neck ──────────────────────────────────────────────────────
         shared_blocks: List[nn.Module] = []
@@ -168,16 +192,22 @@ class TunableDualHeadModel(nn.Module):
         """
         Parameters
         ----------
-        image : [B, 3, H, W]
-        conditions : [B, n_conditions]  (z-score normalised)
+        image : [B, 3, H, W]      — pass zeros if input_mode is 'params_only'
+        conditions : [B, n_cond]  — pass zeros if input_mode is 'image_only'
 
         Returns
         -------
         pred_r : [B, 1]   log10(R) prediction
         logits : [B, 2]   classifier logits
         """
-        feat = self.backbone(image)                      # [B, feat_dim]
-        x = torch.cat([feat, conditions], dim=1)         # [B, feat_dim + n_cond]
+        if self.input_mode == "both":
+            feat = self.backbone(image)                  # [B, feat_dim]
+            x = torch.cat([feat, conditions], dim=1)     # [B, feat_dim + n_cond]
+        elif self.input_mode == "image_only":
+            x = self.backbone(image)                     # [B, feat_dim]
+        else:  # params_only
+            x = conditions                               # [B, n_cond]
+
         shared = self.shared_neck(x)                     # [B, shared_out]
         pred_r = self.regression_head(shared)            # [B, 1]
         logits = self.classifier_head(shared)            # [B, 2]

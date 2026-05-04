@@ -47,6 +47,12 @@ class Config:
     img_size: Tuple[int, int] = (224, 224)
     log_transform: bool = True       # Predict log10(R) instead of R
 
+    # ── Input mode (ablation study) ───────────────────────────────────────────
+    # "both"        → image features + print/polish conditions (default)
+    # "image_only"  → image features only  (conditions ignored)
+    # "params_only" → print/polish conditions only (no YOLO backbone loaded)
+    input_mode: str = "both"
+
     # ── Optuna tuning ─────────────────────────────────────────────────────────
     n_trials: int = 100
     n_tune_epochs: int = 30
